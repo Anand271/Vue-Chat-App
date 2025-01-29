@@ -1,14 +1,17 @@
 <template>
-   <ChatApp />
+  <ChatApp /> 
+    <!-- <TodoApp /> -->
 </template>
 
 <script>
 import ChatApp from './components/ChatApp.vue'
+// import TodoApp from './components/TodoApp.vue'
 
 export default {
   name: 'App',
   components: {
-    ChatApp
+    ChatApp,
+    // TodoApp
   }
 }
 </script>

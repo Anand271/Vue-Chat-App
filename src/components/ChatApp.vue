@@ -5,13 +5,17 @@
     <div class="msger-header-title">
       <i class="fas fa-comment-alt"></i> ChatApp {{username}}
     </div>
-    <button @click="startCall" class="msger-header-options">
+    <!-- <button @click="startCall" class="msger-header-options">
       <span><i class="fa-solid fa-video"></i></span>
-    </button>
+    </button> -->
   </header>
 
-  <video ref="localVideo" autoplay playsinline></video>
-  <video ref="remoteVideo" autoplay playsinline></video>
+  <!-- <video ref="localVideo" autoplay playsinline></video>
+  <video ref="remoteVideo" autoplay playsinline></video> -->
+  <div v-if="isSomeoneCalling">
+    <p>Someone calling you</p>
+    <button @click="startCall" style="background-color: green;">Answer</button>
+  </div>
 
    <form v-if="!isUserNameSet" class="msger-inputarea">
       <input type="text" v-model="username" class="msger-input" placeholder="Enter your name">
@@ -110,91 +114,132 @@
         iceServers : {
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         },
+        isSomeoneCalling: false,
       };
     },
     mounted() {
+       // Initialize PeerConnection on the receiving side
+      this.initializePeerConnection();
+
       socket.on("message", (payload) => {
         this.messages.push(payload);
       });
-  
+    
       socket.on("offer", async (offer) => {
-         console.log("Received offer:", offer);
 
-         if(!this.peerConnection){
-          console.log("Creating peer connection in offer event");
-          this.createPeerConnection();
-         }
-
-         console.log("Signaling State:", this.peerConnection.signalingState);
-        if (this.peerConnection && this.peerConnection.signalingState === "stable") {
-          console.warn("Ignoring duplicate offer in stable state.");
+        if (!offer || !offer.type || !offer.sdp) {
+          console.error("Invalid offer received:", offer);
           return;
         }
 
-        await this.peerConnection.setRemoteDescription(offer);
-        const answer = await this.peerConnection.createAnswer();
-        await this.peerConnection.setLocalDescription(answer);
-        socket.emit("answer", answer);
-        console.log("Answer emited:", offer);
+        if (!this.peerConnection) {
+          console.error("Peer connection is not initialized!");
+          return;
+        }
+
+        this.isSomeoneCalling = true;
+
+        try {
+          console.log("Received offer:", offer);
+          console.log("Signaling state before setting remote description:", this.peerConnection.signalingState);
+          await this.peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+          console.log("Signaling state after setting remote description:", this.peerConnection.signalingState);
+
+          const answer = await this.peerConnection.createAnswer();
+          console.log("Signaling state before setting local description:", this.peerConnection.signalingState);
+          await this.peerConnection.setLocalDescription(answer);
+          console.log("Signaling state after setting local description:", this.peerConnection.signalingState);
+
+          socket.emit("answer", answer);
+          console.log("Answer created and sent:", answer);
+        } catch (error) {
+          console.error("Error handling offer:", error);
+        }
       });
   
       socket.on("answer", async (answer) => {
-        // console.log("Received answer:", answer);
+        console.log("Inside answer:", answer);
 
-        // console.log("Signaling State:", this.peerConnection.signalingState);
-
-        if (this.peerConnection.signalingState !== "have-local-offer") {
-          console.error("Cannot set answer in current state:", this.peerConnection.signalingState);
+        if (!this.peerConnection) {
+          console.error("Peer connection is not initialized!");
           return;
         }
 
-        await this.peerConnection.setRemoteDescription(answer);
+        console.log("Inside answer2:", answer);
+
+        try {
+        console.log("Inside answer3:", answer);
+
+          if (this.peerConnection.signalingState === "stable") {
+            console.warn("Answer received, but signaling state is already stable. Skipping.");
+            console.warn("Restarting call due to unexpected signaling state.");
+            this.peerConnection.restartIce();
+            return;
+          }
+
+          if (this.peerConnection.signalingState !== "have-local-offer") {
+              console.log("Inside answer4:", answer);
+
+            console.warn(
+              "Ignoring answer because the signaling state is:",
+              this.peerConnection.signalingState
+            );
+            return;
+          }
+
+        console.log("Inside answer5:", answer);
+
+          await this.peerConnection.setRemoteDescription(answer);
+          console.log("Remote description set with answer.");
+        } catch (error) {
+          console.error("Error handling answer:", error);
+        }
       });
   
-      socket.on("ice-candidate", (candidate) => {
-        // console.log("Received ICE candidate:", candidate);
-        this.peerConnection.addIceCandidate(candidate);
+      socket.on("ice-candidate", async (candidate) => {
+        if (!this.peerConnection) {
+          console.error("Peer connection is not initialized!");
+          return;
+        }
+
+        try {
+          console.log("Adding ICE candidate:", candidate);
+          await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (error) {
+          console.error("Error adding ICE candidate:", error);
+        }
       });
     },
     methods: {
-      async createPeerConnection(){
-
-        this.localStream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true,
-        });
-        this.$refs.localVideo.srcObject = this.localStream;
-
+      initializePeerConnection() {
         this.peerConnection = new RTCPeerConnection(this.iceServers);
+
         this.peerConnection.ontrack = (event) => {
           this.remoteStream = event.streams[0];
           this.$refs.remoteVideo.srcObject = this.remoteStream;
         };
 
-        this.localStream.getTracks().forEach((track) => {
-          this.peerConnection.addTrack(track, this.localStream);
-          console.log("Added local stream into peer connection in createPeerConnection");
-        });
-  
         this.peerConnection.onicecandidate = (event) => {
           if (event.candidate) {
             socket.emit("ice-candidate", event.candidate);
-            console.log("ice candidate emited in createPeerConnection");
+            console.log("ICE candidate emitted:", event.candidate);
           }
         };
 
-        console.log("Peer connection created in createPeerConnection");
+        console.log("PeerConnection initialized.");
       },
       sendMessage() {
-        event.preventDefault();
+         event.preventDefault();
         const payload = { sender: this.username, message: this.message, time: new Date() };
         socket.emit("message", payload);
         this.message = "";
       },
       async startCall() {
         console.log("starting call");
+        this.resetPeerConnection();
+
         this.localStream = await navigator.mediaDevices.getUserMedia({
-          video: true,
+          video: true,  
           audio: true,
         });
         this.$refs.localVideo.srcObject = this.localStream;
@@ -221,7 +266,14 @@
         const offer = await this.peerConnection.createOffer();
         await this.peerConnection.setLocalDescription(offer);
         socket.emit("offer", offer);
-        console.log("Call started");
+        console.log("Offer created and sent:", offer);
+      },
+      resetPeerConnection() {
+        if (this.peerConnection) {
+          this.peerConnection.close();
+          this.peerConnection = null;
+          console.log("PeerConnection reset.");
+        }
       },
       convertToTime(datetime) {
         const date = new Date(datetime); // Convert to Date object
