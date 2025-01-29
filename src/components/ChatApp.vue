@@ -5,13 +5,13 @@
     <div class="msger-header-title">
       <i class="fas fa-comment-alt"></i> ChatApp {{username}}
     </div>
-    <!-- <button @click="startCall" class="msger-header-options">
+    <button @click="startCall" class="msger-header-options">
       <span><i class="fa-solid fa-video"></i></span>
-    </button> -->
+    </button>
   </header>
 
-  <!-- <video ref="localVideo" autoplay playsinline></video>
-  <video ref="remoteVideo" autoplay playsinline></video> -->
+  <video ref="localVideo" autoplay playsinline></video>
+  <video ref="remoteVideo" autoplay playsinline></video>
   <div v-if="isSomeoneCalling">
     <p>Someone calling you</p>
     <button @click="startCall" style="background-color: green;">Answer</button>
