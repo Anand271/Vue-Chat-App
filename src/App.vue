@@ -42,10 +42,10 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 100vh;
+  height: auto;
   background-image: var(--body-bg);
   font-family: Helvetica, sans-serif;
-  overflow: hidden;
+  /* overflow: hidden; */
 }
 
 </style>
