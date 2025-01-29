@@ -1,4 +1,134 @@
 <template>
+  <div v-if="!isUserNameSet">
+    <input v-model="username" placeholder="Enter your name" />
+    <button @click="setUsername">Set Username</button>
+  </div>
+
+  <div v-if="isUserNameSet">
+    <div>
+      <video ref="localVideo" autoplay playsinline muted></video>
+      <video ref="remoteVideo" autoplay playsinline></video>
+    </div>
+    <button v-if="!isInCall" @click="startCall">Start Call</button>
+    <button v-if="incomingCall" @click="acceptCall">Accept Call</button>
+    <button v-if="isInCall" @click="endCall">End Call</button>
+  </div>
+</template>
+
+<script>
+import io from 'socket.io-client';
+
+export default {
+  data() {
+    return {
+      socket: null,
+      peerConnection: null,
+      localStream: null,
+      remoteStream: null,
+      username: '',
+      isUserNameSet: false,
+      isInCall: false,
+      incomingCall: false,
+      caller: null,
+    };
+  },
+  mounted() {
+    this.socket = io('http://localhost:3000');
+    this.setupSocketListeners();
+  },
+  methods: {
+    setUsername() {
+      if (this.username.trim()) {
+        this.isUserNameSet = true;
+        this.socket.emit('join', this.username);
+      }
+    },
+    setupSocketListeners() {
+      this.socket.on('incoming-call', ({ from }) => {
+        this.caller = from;
+        this.incomingCall = true;
+      });
+
+      this.socket.on('offer', async ({ from, offer }) => {
+        this.createPeerConnection();
+        await this.peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await this.peerConnection.createAnswer();
+        await this.peerConnection.setLocalDescription(answer);
+        this.socket.emit('answer', { to: from, answer });
+      });
+
+      this.socket.on('answer', async ({ answer }) => {
+        await this.peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+      });
+
+      this.socket.on('ice-candidate', ({ candidate }) => {
+        if (candidate) {
+          this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+        }
+      });
+    },
+    async startCall() {
+      await this.getLocalMedia();
+      this.createPeerConnection();
+      const offer = await this.peerConnection.createOffer();
+      await this.peerConnection.setLocalDescription(offer);
+      this.socket.emit('call-user', { to: 'receiverUsername', offer });
+      this.isInCall = true;
+    },
+    async acceptCall() {
+      await this.getLocalMedia();
+      this.incomingCall = false;
+      this.isInCall = true;
+      this.socket.emit('accept-call', { to: this.caller });
+    },
+    async getLocalMedia() {
+      try {
+        this.localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        this.$refs.localVideo.srcObject = this.localStream;
+      } catch (error) {
+        console.error('Error accessing media devices.', error);
+      }
+    },
+    createPeerConnection() {
+      this.peerConnection = new RTCPeerConnection();
+
+      this.peerConnection.ontrack = (event) => {
+        if (!this.remoteStream) {
+          this.remoteStream = new MediaStream();
+          this.$refs.remoteVideo.srcObject = this.remoteStream;
+        }
+        this.remoteStream.addTrack(event.track);
+      };
+
+      this.localStream.getTracks().forEach(track => {
+        this.peerConnection.addTrack(track, this.localStream);
+      });
+
+      this.peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          this.socket.emit('ice-candidate', { to: this.caller, candidate: event.candidate });
+        }
+      };
+    },
+    endCall() {
+      if (this.peerConnection) {
+        this.peerConnection.close();
+        this.peerConnection = null;
+      }
+      this.localStream.getTracks().forEach(track => track.stop());
+      this.localStream = null;
+      this.isInCall = false;
+      this.socket.emit('end-call', { to: this.caller });
+    },
+  },
+};
+</script>
+
+
+
+
+
+<!-- <template>
 
 <section class="msger">
   <header class="msger-header">
@@ -39,42 +169,6 @@
           </div>
         </div>
       </div>
-      <!-- <div class="msg left-msg">
-        <div
-        class="msg-img"
-        style="background-image: url(https://image.flaticon.com/icons/svg/327/327779.svg)"
-        ></div>
-
-        <div class="msg-bubble">
-          <div class="msg-info">
-            <div class="msg-info-name">BOT</div>
-            <div class="msg-info-time">12:45</div>
-          </div>
-
-          <div class="msg-text">
-            Hi, welcome to SimpleChat! Go ahead and send me a message. 😄
-          </div>
-        </div>
-      </div> -->
-
-
-      <!-- <div class="msg right-msg">
-        <div
-        class="msg-img"
-        style="background-image: url(https://image.flaticon.com/icons/svg/145/145867.svg)"
-        ></div>
-
-        <div class="msg-bubble">
-          <div class="msg-info">
-            <div class="msg-info-name">Sajad</div>
-            <div class="msg-info-time">12:46</div>
-          </div>
-
-          <div class="msg-text">
-            You can change your name in JS section!
-          </div>
-        </div>
-      </div> -->
     </main>
 
     <form v-if="isUserNameSet" class="msger-inputarea">
@@ -84,18 +178,6 @@
 
 </section>
 
-    <!-- <div class="chat-container">
-      <div class="messages">
-        <div v-for="msg in messages" :key="msg.id">
-          <strong>{{ msg.sender }}:</strong> {{ msg.message }}
-        </div>
-      </div>
-      <input v-model="message" placeholder="Type a message" />
-      <button @click="sendMessage">Send</button>
-      <button @click="startCall">Start Call</button>
-      <video ref="localVideo" autoplay playsinline></video>
-      <video ref="remoteVideo" autoplay playsinline></video>
-    </div> -->
   </template>
   
   <script>
@@ -290,7 +372,7 @@
       },
     },
   };
-  </script>
+  </script> -->
   
   <style>
 
