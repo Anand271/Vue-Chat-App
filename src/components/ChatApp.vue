@@ -1,134 +1,4 @@
 <template>
-  <div v-if="!isUserNameSet">
-    <input v-model="username" placeholder="Enter your name" />
-    <button @click="setUsername">Set Username</button>
-  </div>
-
-  <div v-if="isUserNameSet">
-    <div>
-      <video ref="localVideo" autoplay playsinline muted></video>
-      <video ref="remoteVideo" autoplay playsinline></video>
-    </div>
-    <button v-if="!isInCall" @click="startCall">Start Call</button>
-    <button v-if="incomingCall" @click="acceptCall">Accept Call</button>
-    <button v-if="isInCall" @click="endCall">End Call</button>
-  </div>
-</template>
-
-<script>
-import io from 'socket.io-client';
-
-export default {
-  data() {
-    return {
-      socket: null,
-      peerConnection: null,
-      localStream: null,
-      remoteStream: null,
-      username: '',
-      isUserNameSet: false,
-      isInCall: false,
-      incomingCall: false,
-      caller: null,
-    };
-  },
-  mounted() {
-    this.socket = io('http://localhost:3000');
-    this.setupSocketListeners();
-  },
-  methods: {
-    setUsername() {
-      if (this.username.trim()) {
-        this.isUserNameSet = true;
-        this.socket.emit('join', this.username);
-      }
-    },
-    setupSocketListeners() {
-      this.socket.on('incoming-call', ({ from }) => {
-        this.caller = from;
-        this.incomingCall = true;
-      });
-
-      this.socket.on('offer', async ({ from, offer }) => {
-        this.createPeerConnection();
-        await this.peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-        const answer = await this.peerConnection.createAnswer();
-        await this.peerConnection.setLocalDescription(answer);
-        this.socket.emit('answer', { to: from, answer });
-      });
-
-      this.socket.on('answer', async ({ answer }) => {
-        await this.peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-      });
-
-      this.socket.on('ice-candidate', ({ candidate }) => {
-        if (candidate) {
-          this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-        }
-      });
-    },
-    async startCall() {
-      await this.getLocalMedia();
-      this.createPeerConnection();
-      const offer = await this.peerConnection.createOffer();
-      await this.peerConnection.setLocalDescription(offer);
-      this.socket.emit('call-user', { to: 'receiverUsername', offer });
-      this.isInCall = true;
-    },
-    async acceptCall() {
-      await this.getLocalMedia();
-      this.incomingCall = false;
-      this.isInCall = true;
-      this.socket.emit('accept-call', { to: this.caller });
-    },
-    async getLocalMedia() {
-      try {
-        this.localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        this.$refs.localVideo.srcObject = this.localStream;
-      } catch (error) {
-        console.error('Error accessing media devices.', error);
-      }
-    },
-    createPeerConnection() {
-      this.peerConnection = new RTCPeerConnection();
-
-      this.peerConnection.ontrack = (event) => {
-        if (!this.remoteStream) {
-          this.remoteStream = new MediaStream();
-          this.$refs.remoteVideo.srcObject = this.remoteStream;
-        }
-        this.remoteStream.addTrack(event.track);
-      };
-
-      this.localStream.getTracks().forEach(track => {
-        this.peerConnection.addTrack(track, this.localStream);
-      });
-
-      this.peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-          this.socket.emit('ice-candidate', { to: this.caller, candidate: event.candidate });
-        }
-      };
-    },
-    endCall() {
-      if (this.peerConnection) {
-        this.peerConnection.close();
-        this.peerConnection = null;
-      }
-      this.localStream.getTracks().forEach(track => track.stop());
-      this.localStream = null;
-      this.isInCall = false;
-      this.socket.emit('end-call', { to: this.caller });
-    },
-  },
-};
-</script>
-
-
-
-
-
-<!-- <template>
 
 <section class="msger">
   <header class="msger-header">
@@ -142,9 +12,10 @@ export default {
 
   <video ref="localVideo" autoplay playsinline></video>
   <video ref="remoteVideo" autoplay playsinline></video>
-  <div v-if="isSomeoneCalling">
-    <p>Someone calling you</p>
-    <button @click="startCall" style="background-color: green;">Answer</button>
+  <div>
+    <button v-if="!isInCall" @click="startCall">Start Call</button>
+    <button v-if="incomingCall" @click="answerCall">Accept Call</button>
+    <button v-if="isInCall" @click="endCall">End Call</button>
   </div>
 
    <form v-if="!isUserNameSet" class="msger-inputarea">
@@ -193,104 +64,19 @@ export default {
         peerConnection: null,
         isUserNameSet: false,
         username: "",
-        iceServers : {
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        iceServers: { 
+          iceServers: [{ urls: "stun:stun.l.google.com:19302" }] 
         },
         isSomeoneCalling: false,
+        incomingCall: false,
+        caller: null,
+        isInCall: false,
       };
     },
     mounted() {
        // Initialize PeerConnection on the receiving side
       this.initializePeerConnection();
-
-      socket.on("message", (payload) => {
-        this.messages.push(payload);
-      });
-    
-      socket.on("offer", async (offer) => {
-
-        if (!offer || !offer.type || !offer.sdp) {
-          console.error("Invalid offer received:", offer);
-          return;
-        }
-
-        if (!this.peerConnection) {
-          console.error("Peer connection is not initialized!");
-          return;
-        }
-
-        this.isSomeoneCalling = true;
-
-        try {
-          console.log("Received offer:", offer);
-          console.log("Signaling state before setting remote description:", this.peerConnection.signalingState);
-          await this.peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-          console.log("Signaling state after setting remote description:", this.peerConnection.signalingState);
-
-          const answer = await this.peerConnection.createAnswer();
-          console.log("Signaling state before setting local description:", this.peerConnection.signalingState);
-          await this.peerConnection.setLocalDescription(answer);
-          console.log("Signaling state after setting local description:", this.peerConnection.signalingState);
-
-          socket.emit("answer", answer);
-          console.log("Answer created and sent:", answer);
-        } catch (error) {
-          console.error("Error handling offer:", error);
-        }
-      });
-  
-      socket.on("answer", async (answer) => {
-        console.log("Inside answer:", answer);
-
-        if (!this.peerConnection) {
-          console.error("Peer connection is not initialized!");
-          return;
-        }
-
-        console.log("Inside answer2:", answer);
-
-        try {
-        console.log("Inside answer3:", answer);
-
-          if (this.peerConnection.signalingState === "stable") {
-            console.warn("Answer received, but signaling state is already stable. Skipping.");
-            console.warn("Restarting call due to unexpected signaling state.");
-            this.peerConnection.restartIce();
-            return;
-          }
-
-          if (this.peerConnection.signalingState !== "have-local-offer") {
-              console.log("Inside answer4:", answer);
-
-            console.warn(
-              "Ignoring answer because the signaling state is:",
-              this.peerConnection.signalingState
-            );
-            return;
-          }
-
-        console.log("Inside answer5:", answer);
-
-          await this.peerConnection.setRemoteDescription(answer);
-          console.log("Remote description set with answer.");
-        } catch (error) {
-          console.error("Error handling answer:", error);
-        }
-      });
-  
-      socket.on("ice-candidate", async (candidate) => {
-        if (!this.peerConnection) {
-          console.error("Peer connection is not initialized!");
-          return;
-        }
-
-        try {
-          console.log("Adding ICE candidate:", candidate);
-          await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (error) {
-          console.error("Error adding ICE candidate:", error);
-        }
-      });
+      this.setupSocketListeners();
     },
     methods: {
       initializePeerConnection() {
@@ -316,39 +102,79 @@ export default {
         socket.emit("message", payload);
         this.message = "";
       },
-      async startCall() {
-        console.log("starting call");
-        this.resetPeerConnection();
+      setupSocketListeners(){
+        socket.on("message", (payload) => {
+          this.messages.push(payload);
+        });
 
-        this.localStream = await navigator.mediaDevices.getUserMedia({
-          video: true,  
-          audio: true,
+        socket.on('incoming-call', (payload) => {
+          this.caller = payload.to;
+          console.log('incoming-call socket on', payload)
+          this.incomingCall = true;
         });
-        this.$refs.localVideo.srcObject = this.localStream;
-  
-        this.peerConnection = new RTCPeerConnection(this.iceServers);
-        this.peerConnection.ontrack = (event) => {
-          this.remoteStream = event.streams[0];
-          this.$refs.remoteVideo.srcObject = this.remoteStream;
-        };
-  
-        this.localStream.getTracks().forEach((track) => {
-          this.peerConnection.addTrack(track, this.localStream);
-          console.log("Added local stream into peer connection");
-        });
-  
-        this.peerConnection.onicecandidate = (event) => {
-          if (event.candidate) {
-            socket.emit("ice-candidate", event.candidate);
-            console.log("ice candidate emited");
+        socket.on("ice-candidate", async (candidate) => {
+          if (!this.peerConnection) {
+            console.error("Peer connection is not initialized!");
+            return;
           }
-        };
 
-  
+          // Ensure the candidate is valid before adding it
+          if (!candidate || (!candidate.sdpMid && candidate.sdpMLineIndex === null)) {
+            console.warn("Received an invalid ICE candidate:", candidate);
+            return;
+          }
+
+          try {
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+          } catch (error) {
+            console.error("Error adding ICE candidate:", error);
+          }
+        });
+      },
+      async startCall() {
+        await this.getLocalMedia();
+        this.createPeerConnection();
         const offer = await this.peerConnection.createOffer();
         await this.peerConnection.setLocalDescription(offer);
-        socket.emit("offer", offer);
-        console.log("Offer created and sent:", offer);
+        socket.emit('call-user', { to: 'receiverUsername', offer }); //emit the call to server
+        this.isInCall = true;
+      },
+      async getLocalMedia() {
+        try {
+          this.localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+          this.$refs.localVideo.srcObject = this.localStream;
+        } catch (error) {
+          console.error('Error accessing media devices.', error);
+        }
+      },
+      createPeerConnection() {
+        this.peerConnection = new RTCPeerConnection(this.iceServers);
+
+        this.peerConnection.ontrack = (event) => {
+          if (!this.remoteStream) {
+            this.remoteStream = new MediaStream();
+            this.$refs.remoteVideo.srcObject = this.remoteStream;
+          }
+          this.remoteStream.addTrack(event.track);
+        };
+
+        this.localStream.getTracks().forEach(track => {
+          this.peerConnection.addTrack(track, this.localStream);
+        });
+
+        this.peerConnection.onicecandidate = (event) => {
+          if (event.candidate) {
+            socket.emit('ice-candidate', { to: this.caller, candidate: event.candidate });
+          }
+        };
+      },
+      async answerCall() {
+        await this.getLocalMedia();
+        this.createPeerConnection();
+        const answer = await this.peerConnection.createAnswer();
+        await this.peerConnection.setLocalDescription(answer);
+        socket.emit('answer-call', { to: this.caller, answer }); // Emit answer to server
+        this.isInCall = true;
       },
       resetPeerConnection() {
         if (this.peerConnection) {
@@ -372,7 +198,7 @@ export default {
       },
     },
   };
-  </script> -->
+  </script>
   
   <style>
 
