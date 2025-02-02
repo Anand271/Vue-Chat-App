@@ -113,6 +113,7 @@
           this.incomingCall = true;
         });
         socket.on("ice-candidate", async (candidate) => {
+          console.log("Received ICE candidate:", candidate);
           if (!this.peerConnection) {
             console.error("Peer connection is not initialized!");
             return;
@@ -132,11 +133,22 @@
         });
       },
       async startCall() {
+        console.log('startCall')
+
         await this.getLocalMedia();
+        console.log('getLocalMedia')
+
         this.createPeerConnection();
+        console.log('creating peer connection')
+
         const offer = await this.peerConnection.createOffer();
+        console.log('here is the offer', offer)
+
         await this.peerConnection.setLocalDescription(offer);
+        console.log('setLocalDescription')
+
         socket.emit('call-user', { to: 'receiverUsername', offer }); //emit the call to server
+        console.log('server emit call-user')
         this.isInCall = true;
       },
       async getLocalMedia() {
